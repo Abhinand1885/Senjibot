@@ -1,157 +1,148 @@
 import discord
 from discord.ext import commands
-import json
+from replit import db
 import random
+
+if "Currency" not in db:
+    db["Currency"] = {}
+if "Shop" not in db:
+    db["Shop"] = {}
 
 class Currency(commands.Cog):
     def __init__(self, client):
         self.client = client
     
-    @commands.command(aliases = ["bal"])
+    @commands.command(
+        description = "member must not be a bot.",
+        aliases = ["bal"]
+    )
     async def balance(self, ctx, *, member: discord.Member = None):
         if member == None:
             member = ctx.author
-        with open("balance.json") as file:
-            balance = json.load(file)
-        if str(member.id) not in balance:
-            balance[str(member.id)] = {"wallet": 0, "bank": 0}
+        if member.bot:
+            return await ctx.reply("member must not be a bot.")
+        if str(member.id) not in db["Currency"]:
+            db["Currency"][str(member.id)] = 0
+        await ctx.reply(f"You have ${db['Currency'][str(member.id)]}")
+    
+    @commands.command(
+        aliases = ["lb"]
+    )
+    async def leaderboard(self, ctx):
+        if str(ctx.author.id) not in db["Currency"]:
+            db["Currency"][str(ctx.author.id)] = 0
         await ctx.reply(embed = discord.Embed(
-            title = f"{member.name}'s Balance",
-            description = f"""
-Wallet: ${balance[str(member.id)]['wallet']}
-Bank: ${balance[str(member.id)]['bank']}
-""",
+            title = "Leaderboard",
+            description = "\n".join(f"{index + 1}. `{self.client.get_user(int(item[0])) or 'unknown#0000'}`: ${item[1]}" for index, item in enumerate(sorted(filter(lambda i: i[1] > 0, db["Currency"].items()), key = lambda i: i[1], reverse = True))),
             color = 0xffe5ce
-        ), mention_author = False)
-        with open("balance.json", "w") as file:
-            json.dump(balance, file, indent = 4)
+        ).set_footer(
+            text = ctx.author.display_name,
+            icon_url = ctx.author.avatar_url
+        ))
     
-    @commands.command(aliases = ["dep"])
-    async def deposit(self, ctx, amount: str):
-        with open("balance.json") as file:
-            balance = json.load(file)
-        if str(ctx.author.id) not in balance:
-            balance[str(ctx.author.id)] = {"wallet": 0, "bank": 0}
-        if amount.lower() == "all":
-            amount = balance[str(ctx.author.id)]["wallet"]
-        else:
-            amount = int(amount)
-        if amount > 0:
-            if balance[str(ctx.author.id)]["wallet"] >= amount:
-                balance[str(ctx.author.id)]["wallet"] -= amount
-                balance[str(ctx.author.id)]["bank"] += amount
-                await ctx.reply(f"${amount} has been deposited.", mention_author = False)
-            else:
-                await ctx.reply(f"You are ${balance[str(ctx.author.id)]['wallet'] - amount} short.", mention_author = False)
-        else:
-            await ctx.reply("Provide a valid amount greater than 0.")
-        with open("balance.json", "w") as file:
-            json.dump(balance, file, indent = 4)
-    
-    @commands.command(aliases = ["with"])
-    async def withdraw(self, ctx, amount: str):
-        with open("balance.json") as file:
-            balance = json.load(file)
-        if str(ctx.author.id) not in balance:
-            balance[str(ctx.author.id)] = {"wallet": 0, "bank": 0}
-        if amount.lower() == "all":
-            amount = balance[str(ctx.author.id)]["bank"]
-        else:
-            amount = int(amount)
-        if amount > 0:
-            if balance[str(ctx.author.id)]["bank"] >= amount:
-                balance[str(ctx.author.id)]["bank"] -= amount
-                balance[str(ctx.author.id)]["wallet"] += amount
-                await ctx.reply(f"${amount} has been withdrawn.", mention_author = False)
-            else:
-                await ctx.reply(f"You are ${balance[str(ctx.author.id)]['bank'] - amount} short.", mention_author = False)
-        else:
-            await ctx.reply("Provide a valid amount greater than 0.", mention_author = False)
-        with open("balance.json", "w") as file:
-            json.dump(balance, file, indent = 4)
-    
-    @commands.command()
-    @commands.cooldown(rate = 1, per = 30 * 60, type = commands.BucketType.user)
-    async def give(self, ctx, member: discord.Member, amount: str):
-        with open("balance.json") as file:
-            balance = json.load(file)
-        if str(ctx.author.id) not in balance:
-            balance[str(ctx.author.id)] = {"wallet": 0, "bank": 0}
-        if amount.lower() == "all":
-            amount = balance[str(ctx.author.id)]["wallet"]
-        else:
-            amount = int(amount)
-        if str(member.id) not in balance:
-            balance[str(member.id)] = {"wallet": 0, "bank": 0}
-        if amount > 0:
-            if balance[str(ctx.author.id)]["wallet"] >= amount:
-                if amount == balance[str(ctx.author.id)]["wallet"]:
-                    message = await ctx.reply(f"Are you sure you want to give all of your money to **{member.name}**?", mention_author = False)
-                    await message.add_reaction("✅")
-                    await message.add_reaction("❎")
-                    try:
-                        reaction, user = await self.client.wait_for("reaction_add", check = lambda reaction, user: str(reaction.emoji) in ("✅", "❎") and reaction.message == message and user == ctx.author, timeout = 20)
-                        if str(reaction.emoji) == "✅":
-                            await message.delete()
-                        elif str(reaction.emoji) == "❎":
-                            return await message.delete()
-                    except asyncio.TimeoutError:
-                        return await message.delete()
-                balance[str(ctx.author.id)]["wallet"] -= amount
-                balance[str(member.id)]["wallet"] += amount
-                await ctx.reply(f"You gave **{member.name}** ${amount}.", mention_author = False)
-            else:
-                await ctx.reply(f"You are ${balance[str(ctx.author.id)]['wallet'] - amount} short.", mention_author = False)
-        else:
-            await ctx.reply("Provide a valid amount greater than 0.", mention_author = False)
-        with open("balance.json", "w") as file:
-            json.dump(balance, file, indent = 4)
-    
-    @commands.command()
-    @commands.cooldown(rate = 1, per = 2 * 60 * 60, type = commands.BucketType.user)
+    @commands.command(
+        description = "cooldown is 1 hour."
+    )
+    @commands.cooldown(rate = 1, per = 1 * 60 * 60, type = commands.BucketType.user)
     async def work(self, ctx):
-        with open("balance.json") as file:
-            balance = json.load(file)
-        if str(ctx.author.id) not in balance:
-            balance[str(ctx.author.id)] = {"wallet": 0, "bank": 0}
-        gain = random.randint(100, 500)
-        balance[str(ctx.author.id)]["wallet"] += gain
-        await ctx.reply(f"You worked and gained ${gain}.", mention_author = False)
-        with open("balance.json", "w") as file:
-            json.dump(balance, file, indent = 4)
+        if str(ctx.author.id) not in db["Currency"]:
+            db["Currency"][str(ctx.author.id)] = 0
+        gain = random.randint(500, 1000)
+        db["Currency"][str(ctx.author.id)] += gain
+        await ctx.reply(f"You worked and gained ${gain}.")
     
     @commands.command()
-    async def rob(self, ctx, *, member: discord.Member):
-        await ctx.reply("No.", mention_author = False)
+    @commands.is_owner()
+    async def set(self, ctx, amount: int, *, member: discord.Member = None):
+        if member == None:
+            member = ctx.author
+        db["Currency"][str(member.id)] = amount
+        await ctx.reply(f"{member.display_name}'s balance has been set to ${db['Currency'][str(member.id)]}.")
     
-    @commands.command()
-    async def gamble(self, ctx, amount: str):
-        with open("balance.json") as file:
-            balance = json.load(file)
-        if str(ctx.author.id) not in balance:
-            balance[str(ctx.author.id)] = {"wallet": 0, "bank": 0}
-        if amount.lower() == "all":
-            amount = balance[str(ctx.author.id)]["wallet"]
-        else:
-            amount = int(amount)
-        if amount > 0:
-            if balance[str(ctx.author.id)]["wallet"] >= amount:
-                p1 = random.randint(2, 12)
-                p2 = random.randint(2, 12)
-                if p1 > p2:
-                    balance[str(ctx.author.id)]["wallet"] += amount
-                    await ctx.reply(f"You won ${amount}!\n{p1} | {p2}", mention_author = False)
-                elif p1 < p2:
-                    balance[str(ctx.author.id)]["wallet"] -= amount
-                    await ctx.reply(f"You lost ${amount}.\n{p1} | {p2}", mention_author = False)
-                else:
-                    await ctx.reply(f"Tie?\n{p1} | {p2}", mention_author = False)
+    @commands.group()
+    @commands.guild_only()
+    async def shop(self, ctx):
+        if ctx.invoked_subcommand == None:
+            if str(ctx.guild.id) not in db["Shop"]:
+                db["Shop"][str(ctx.guild.id)] = {"nothing": 0}
+            await ctx.reply(embed = discord.Embed(
+                title = f"{ctx.guild.name}'s Shop",
+                description = "\n".join(f"{num + 1}. `{i[0]}`: ${i[1]}" for num, i in enumerate(sorted(db["Shop"][str(ctx.guild.id)].items(), key = lambda i: i[1]))),
+                color = 0xffe5ce
+            ).set_footer(
+                text = ctx.author.name,
+                icon_url = ctx.author.avatar_url
+            ))
+    
+    @shop.command(
+        description = """
+You need the Manage Guild permission to use this command.
+amount cannot be lower than 0.
+        """
+    )
+    @commands.guild_only()
+    @commands.has_guild_permissions(manage_guild = True)
+    async def add(self, ctx, name: str, price: int):
+        if str(ctx.guild.id) not in db["Shop"]:
+            db["Shop"][str(ctx.guild.id)] = {"nothing": 0}
+        if price >= 0:
+            if name not in db["Shop"][str(ctx.guild.id)]:
+                db["Shop"][str(ctx.guild.id)][name] = price
+                await ctx.reply(f'Item "{name}" added.')
             else:
-                await ctx.reply(f"You are ${balance[str(ctx.author.id)]['wallet'] - amount} short.", mention_author = False)
+                await ctx.reply(f'Item named "{name}" is already added.')
         else:
-            await ctx.reply("Provide a valid amount greater than 0.", mention_author = False)
-        with open("balance.json", "w") as file:
-            json.dump(balance, file, indent = 4)
+            await ctx.reply("price must be greater or equal to 0.")
+    
+    @shop.command(
+        description = """
+You need the Manage Guild permission to use this command.
+amount cannot be lower than 0.
+        """
+    )
+    @commands.guild_only()
+    @commands.has_guild_permissions(manage_guild = True)
+    async def edit(self, ctx, item: str, price: int):
+        if str(ctx.guild.id) not in db["Shop"]:
+            db["Shop"][str(ctx.guild.id)] = {"nothing": 0}
+        try:
+            if price >= 0:
+                db["Shop"][str(ctx.guild.id)][item] = price
+                await ctx.reply(f'Item "{item}" edited.')
+            else:
+                await ctx.reply("price must be greater or equal to 0.")
+        except KeyError:
+            await ctx.reply(f'No item named "{item}" found.')
+    
+    @shop.command(
+        description = "You need the Manage Guild permission to use this command."
+    )
+    @commands.guild_only()
+    @commands.has_guild_permissions(manage_guild = True)
+    async def remove(self, ctx, *, item: str):
+        if str(ctx.guild.id) not in db["Shop"]:
+            db["Shop"][str(ctx.guild.id)] = {"nothing": 0}
+        try:
+            del db["Shop"][str(ctx.guild.id)][item]
+            await ctx.reply(f'Item "{item}" removed.')
+        except KeyError:
+            await ctx.reply(f'No item named "{item}" found.')
+    
+    @commands.command()
+    @commands.guild_only()
+    async def buy(self, ctx, *, item: str):
+        if str(ctx.author.id) not in db["Currency"]:
+            db["Currency"][str(ctx.author.id)] = 0
+        if str(ctx.guild.id) not in db["Shop"]:
+            db["Shop"][str(ctx.guild.id)] = {"nothing": 0}
+        try:
+            if db["Currency"][str(ctx.author.id)] >= db["Shop"][str(ctx.guild.id)][item]:
+                db["Currency"][str(ctx.author.id)] -= db["Shop"][str(ctx.guild.id)][item]
+                await ctx.reply(f"Item has been purchased.")
+            else:
+                await ctx.reply(f"You're ${db['Shop'][str(ctx.guild.id)][item] - db['Currency'][str(ctx.author.id)]} short.")
+        except KeyError:
+            await ctx.reply(f'No item named "{item}" found.')
 
 def setup(client):
     client.add_cog(Currency(client))
