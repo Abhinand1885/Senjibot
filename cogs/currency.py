@@ -23,7 +23,7 @@ class Currency(commands.Cog):
             return await ctx.reply("member must not be a bot.")
         if str(member.id) not in db["Currency"]:
             db["Currency"][str(member.id)] = 0
-        await ctx.reply(f"You have ${db['Currency'][str(member.id)]}")
+        await ctx.reply(f"{member.display_name} have ${db['Currency'][str(member.id)]}.")
     
     @commands.command(
         aliases = ["lb"]
