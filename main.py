@@ -62,9 +62,9 @@ async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandOnCooldown):
         try:
             try:
-                await ctx.reply(f"You are on cooldown. Try again in <t:{int(datetime.datetime.utcnow().timestamp() + error.retry_after)}:R>")
+                await ctx.reply(f"You are on cooldown. Try again <t:{int(datetime.datetime.utcnow().timestamp() + error.retry_after)}:R>")
             except discord.HTTPException:
-                await ctx.send(f"> {ctx.message}\nYou are on cooldown. Try again in <t:{int(datetime.datetime.utcnow().timestamp() + error.retry_after)}:R>")
+                await ctx.send(f"> {ctx.message}\nYou are on cooldown. Try again <t:{int(datetime.datetime.utcnow().timestamp() + error.retry_after)}:R>")
         except discord.Forbidden:
             await ctx.author.send(f"> {ctx.channel.mention}: {ctx.message.content}\nYou are on cooldown. Try again <t:{int(datetime.datetime.utcnow().timestamp() + error.retry_after)}:R>")
     elif isinstance(error, commands.NotOwner):
