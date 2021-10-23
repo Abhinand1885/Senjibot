@@ -47,9 +47,19 @@ class Currency(commands.Cog):
     async def work(self, ctx):
         if str(ctx.author.id) not in db["Currency"]:
             db["Currency"][str(ctx.author.id)] = 0
-        gain = random.randint(500, 1000)
+        gain = random.randint(100, 250)
         db["Currency"][str(ctx.author.id)] += gain
         await ctx.reply(f"You worked and gained ${gain}.")
+    
+    @commands.command(
+        description = "cooldown is 1 day."
+    )
+    @commands.cooldown(rate = 1, per = 24 * 60 * 60, type = commands.BucketType.user)
+    async def daily(self, ctx):
+        if str(ctx.author.id) not in db["Currency"]:
+            db["Currency"][str(ctx.author.id)] = 0
+        db["Currency"][str(ctx.author.id)] += 1000
+        await ctx.reply("$1000 for your daily reward!")
     
     @commands.command()
     @commands.is_owner()
