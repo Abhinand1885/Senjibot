@@ -108,15 +108,8 @@ async def on_guild_remove(guild):
     help = "Math Operators: +, -, ×, ÷, ^, %"
 )
 async def math(ctx, *, content: str):
-    if commands.is_owner():
-        await ctx.reply(embed = discord.Embed(
-            title = "Evaluation Result",
-            description = eval(content),
-            color = 0xffe5ce
-        ).set_footer(
-            text = ctx.author.display_name,
-            icon_url = ctx.author.avatar_url
-        ))
+    if await client.is_owner(ctx.author):
+        await ctx.reply(eval(content))
     else:
         content = "".join(filter(lambda i: i in "9876543210+-×÷^%", content))
         content = content.replace("^", "**").replace("÷", "/").replace("×", "*")

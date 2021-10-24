@@ -7,11 +7,15 @@ app = Flask(__name__)
 @app.route("/")
 def home():
     return """
+<!doctype html>
 <html>
     <head>
-        <title>
-            Senjibot
-        </title>
+        <title>Senjibot</title>
+        <meta content="Senjibot" property="og:title" />
+        <meta content="Senjibot is a multipurpose bot that has economy system and editable guild-only shop" property="og:description" />
+        <meta content="https://Senjibot.senjienji.repl.co" property="og:url" />
+        <meta content="https://cdn.discordapp.com/avatars/893338697947316225/7c5bc15dcc776bcfe5af69ea7343ec34.webp?size=1024" property="og:image" />
+        <meta content="#FFE5CE" data-react-helmet="true" name="theme-color" />
     </head>
     <body>
         <h1>
@@ -21,10 +25,9 @@ def home():
         <p>
             Senjibot is a multipurpose bot that has economy system and editable guild-only shop
         </p>
-        <h3>
-            Visit https://Senjibot.senjienji.repl.co/invite to invite me!
-        </h3>
-        <img src = "avatar_url.jpg" />
+        <a href="https://Senjibot.senjienji.repl.co/invite" >
+            Invite me!
+        </a>
     </body>
 </html>
     """
