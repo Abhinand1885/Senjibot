@@ -33,7 +33,7 @@ class Currency(commands.Cog):
             db["Currency"][str(ctx.author.id)] = 0
         await ctx.reply(embed = discord.Embed(
             title = "Leaderboard",
-            description = "\n".join(f"{index + 1}. `{self.client.get_user(int(item[0])) or 'unknown#0000'}`: ${item[1]}" for index, item in enumerate(sorted(filter(lambda i: i[1] > 0, db["Currency"].items()), key = lambda i: i[1], reverse = True))),
+            description = "\n".join(f"{index + 1}. `{self.client.get_user(int(item[0])) or 'invalid-user#0000'}`: ${item[1]}" for index, item in enumerate(sorted(filter(lambda i: i[1] > 0, db["Currency"].items()), key = lambda i: i[1], reverse = True))),
             color = 0xffe5ce
         ).set_footer(
             text = ctx.author.display_name,
@@ -61,13 +61,11 @@ class Currency(commands.Cog):
         db["Currency"][str(ctx.author.id)] += 1000
         await ctx.reply("$1000 for your daily reward!")
     
-    @commands.command()
+    @commands.command(hidden = True)
     @commands.is_owner()
-    async def set(self, ctx, amount: int, *, member: discord.Member = None):
-        if member == None:
-            member = ctx.author
+    async def set(self, ctx, member: discord.Member, amount: int):
         db["Currency"][str(member.id)] = amount
-        await ctx.reply(f"{member.display_name}'s balance has been set to ${db['Currency'][str(member.id)]}.")
+        await ctx.reply(f"{member.display_name}'s balance has been set to ${amount}.")
     
     @commands.group()
     @commands.guild_only()

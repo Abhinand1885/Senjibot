@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from webserver import keep_alive
 from replit import db
 import datetime
@@ -19,7 +19,7 @@ class MinimalHelpCommand(commands.MinimalHelpCommand):
                 color = 0xffe5ce
             ))
 
-async def get_prefix(client, message):
+def get_prefix(client, message):
     if message.guild == None:
         return "s!"
     elif str(message.guild.id) not in db["Prefix"]:
@@ -30,7 +30,7 @@ client = commands.Bot(
     command_prefix = get_prefix,
     activity = discord.Game("Python"),
     help_command = MinimalHelpCommand(),
-    owner_id = 881772996614819941,
+    owner_id = 902371374033670224,
     allowed_mentions = discord.AllowedMentions(
         everyone = False,
         replied_user = False,
@@ -59,40 +59,26 @@ async def on_ready():
 
 @client.event
 async def on_command_error(ctx, error):
+    content = str(error)
     if isinstance(error, commands.CommandOnCooldown):
-        try:
-            try:
-                await ctx.reply(f"You are on cooldown. Try again <t:{int(datetime.datetime.utcnow().timestamp() + error.retry_after)}:R>")
-            except discord.HTTPException:
-                await ctx.send(f"> {ctx.message}\nYou are on cooldown. Try again <t:{int(datetime.datetime.utcnow().timestamp() + error.retry_after)}:R>")
-        except discord.Forbidden:
-            await ctx.author.send(f"> {ctx.channel.mention}: {ctx.message.content}\nYou are on cooldown. Try again <t:{int(datetime.datetime.utcnow().timestamp() + error.retry_after)}:R>")
+        content = f"You are on cooldown. Try again <t:{int(datetime.datetime.utcnow().timestamp() + error.retry_after)}:R>"
+        ctx.command.reset_cooldown(ctx)
     elif isinstance(error, commands.NotOwner):
-        try:
-            try:
-                await ctx.reply(f'Command "{ctx.command.name}" is not found')
-            except discord.HTTPException:
-                await ctx.send(f'> {ctx.message.content}\nCommand "{ctx.command.name}" is not found')
-        except discord.Forbidden:
-            await ctx.author.send(f'> {ctx.channel.mention}: {ctx.message.content}\nCommand "{ctx.command.name}" is not found')
+        content = f'Command "{ctx.command.name}" is not found'
         ctx.command.reset_cooldown(ctx)
     elif isinstance(error, commands.CommandNotFound):
-        try:
-            try:
-                await ctx.reply(error)
-            except discord.HTTPException:
-                await ctx.send(f"> {ctx.message}\n{error}")
-        except discord.Forbidden:
-            await ctx.author.send(f"> {ctx.channel.mention}: {ctx.message.content}\n{error}")
+        return
     else:
-        try:
-            try:
-                await ctx.reply(error)
-            except discord.HTTPException:
-                await ctx.send(f"> {ctx.message}\n{error}")
-        except discord.Forbidden:
-            await ctx.author.send(f"> {ctx.channel.mention}: {ctx.message.content}\n{error}")
         ctx.command.reset_cooldown(ctx)
+    try:
+        await ctx.reply(content)
+    except discord.HTTPException:
+        await ctx.send(f"> {ctx.message}\n{content}")
+    except discord.Forbidden:
+        try:
+            await ctx.author.send(f"> {ctx.channel.mention}: {ctx.message.content}\n{content}")
+        except discord.Forbidden:
+            pass
 
 @client.event
 async def on_guild_join(guild):
@@ -101,6 +87,16 @@ async def on_guild_join(guild):
 @client.event
 async def on_guild_remove(guild):
     await client.get_user(client.owner_id).send(f"Removed from {guild.name}.")
+
+@client.event
+async def on_message(message):
+    if message.guild == None:
+        if message.content.startswith(client.command_prefix(client, message)):
+            await client.process_commands(message)
+        elif message.author.id not in (client.owner_id, client.user.id):
+            await client.get_user(client.owner_id).send(f"`{message.author}`:\n>>>{message.content}")
+    else:
+        await client.process_commands(message)
 
 #Miscellaneous Commands
 @client.command(
@@ -177,7 +173,7 @@ async def equation(ctx):
 Type Fizzbuzz if the number shown is divisable by 3 and 5
 else type Fizz if it's divisable by 3
 else type Buzz if it's divisable by 5
-else type the number shown
+else type the number sh own
     """
 )
 async def fizzbuzz(ctx):
@@ -424,9 +420,11 @@ async def unban(ctx, user: discord.User, *, reason: str = "no reason"):
 async def prefix(ctx, prefix = None):
     if prefix == None:
         await ctx.reply(f"My current prefix is `{db['Prefix'][str(ctx.guild.id)]}`.")
-    elif commands.has_guild_permissions(manage_guild = True):
+    elif ctx.author.guild_permissions >= discord.Permissions(manage_guild = True):
         db["Prefix"][str(ctx.guild.id)] = prefix
         await ctx.reply(f"Prefix has been set to `{db['Prefix'][str(ctx.guild.id)]}`.")
+    else:
+        raise commands.MissingPermissions(["manage_guild"])
 
 @client.command(
     description = "You need the Manage Roles permission to use this command."
