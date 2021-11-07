@@ -10,7 +10,9 @@ def home():
 <!doctype html>
 <html>
     <head>
-        <title>Senjibot</title>
+        <title>
+            Senjibot
+        </title>
         <meta content="Senjibot" property="og:title" />
         <meta content="Senjibot is a multipurpose bot that has economy system and editable guild-only shop" property="og:description" />
         <meta content="https://Senjibot.senjienji.repl.co" property="og:url" />
@@ -21,12 +23,19 @@ def home():
         <h1>
             Senjibot
         </h1>
-        <hr>
         <p>
             Senjibot is a multipurpose bot that has economy system and editable guild-only shop
         </p>
-        <a href="https://Senjibot.senjienji.repl.co/invite" >
+        <a href="https://top.gg/bot/893338697947316225">
+            <img src="https://top.gg/api/widget/893338697947316225.svg" />
+        </a>
+        <hr />
+        <a href="https://Senjibot.senjienji.repl.co/invite">
             Invite me!
+        </a>
+        <br />
+        <a href="https://Senjibot.senjienji.repl.co/lounge">
+            My owner's lounge
         </a>
     </body>
 </html>
@@ -36,9 +45,10 @@ def home():
 def invite():
     return redirect(discord.utils.oauth_url(893338697947316225, permissions = discord.Permissions(permissions = 268561478)))
 
-def run():
-    app.run(host = "0.0.0.0", port = 8080)
+@app.route("/lounge")
+def lounge():
+    return redirect("https://discord.gg/hx3Vmcq8aa")
 
 def keep_alive():
-    t = Thread(target = run)
+    t = Thread(target = lambda: app.run(host = "0.0.0.0", port = 8080))
     t.start()

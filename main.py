@@ -1,6 +1,7 @@
 import discord
-from discord.ext import commands, tasks
+from discord.ext import commands
 from webserver import keep_alive
+from inspect import Parameter
 from replit import db
 import datetime
 import asyncio
@@ -8,7 +9,13 @@ import random
 import os
 
 if "Prefix" not in db:
-    db["Prefix"] = {}
+    db["Prefix"] = {} #{"guild_id": "prefix"}
+if "Balance" not in db:
+    db["Balance"] = {} #{"user_id": amount}
+if "Shop" not in db:
+    db["Shop"] = {} #{"guild_id": {"name": price}}
+if "Enabled" not in db:
+    db["Enabled"] = {} #{"guild_id": {"command_name": enabled}}
 
 class MinimalHelpCommand(commands.MinimalHelpCommand):
     async def send_pages(self):
@@ -44,7 +51,16 @@ client = commands.Bot(
         reactions = True
     )
 )
-client.load_extension("cogs.currency")
+
+@client.check
+async def is_enabled(ctx):
+    if ctx.guild == None:
+        return True
+    if str(ctx.guild.id) not in db["Enabled"]:
+        db["Enabled"][str(ctx.guild.id)] = {command.name: True for command in client.commands}
+    if ctx.command.name not in db["Enabled"][str(ctx.guild.id)]:
+        db["Enabled"][str(ctx.guild.id)][ctx.command.name] = True
+    return db["Enabled"][str(ctx.guild.id)][ctx.command.name]
 
 #Events
 @client.event
@@ -59,26 +75,23 @@ async def on_ready():
 
 @client.event
 async def on_command_error(ctx, error):
+    print(f"{type(error)}: {error}")
     content = str(error)
     if isinstance(error, commands.CommandOnCooldown):
         content = f"You are on cooldown. Try again <t:{int(datetime.datetime.utcnow().timestamp() + error.retry_after)}:R>"
-        ctx.command.reset_cooldown(ctx)
     elif isinstance(error, commands.NotOwner):
         content = f'Command "{ctx.command.name}" is not found'
-        ctx.command.reset_cooldown(ctx)
-    elif isinstance(error, commands.CommandNotFound):
+    elif isinstance(error, commands.CommandNotFound) or str(error) == f"The global check functions for command {ctx.command.name} failed.":
         return
-    else:
-        ctx.command.reset_cooldown(ctx)
     try:
-        await ctx.reply(content)
+        message = await ctx.reply(content)
     except discord.HTTPException:
-        await ctx.send(f"> {ctx.message}\n{content}")
+        message = await ctx.send(f"{ctx.author.mention} {content}")
     except discord.Forbidden:
         try:
-            await ctx.author.send(f"> {ctx.channel.mention}: {ctx.message.content}\n{content}")
+            return await ctx.author.send(f"> {ctx.channel.mention}: {ctx.message.content}\n{content}")
         except discord.Forbidden:
-            pass
+            return
 
 @client.event
 async def on_guild_join(guild):
@@ -88,21 +101,8 @@ async def on_guild_join(guild):
 async def on_guild_remove(guild):
     await client.get_user(client.owner_id).send(f"Removed from {guild.name}.")
 
-@client.event
-async def on_message(message):
-    if message.guild == None:
-        if message.content.startswith(client.command_prefix(client, message)):
-            await client.process_commands(message)
-        elif message.author.id not in (client.owner_id, client.user.id):
-            await client.get_user(client.owner_id).send(f"`{message.author}`:\n>>>{message.content}")
-    else:
-        await client.process_commands(message)
-
 #Miscellaneous Commands
-@client.command(
-    brief = "Solves an equation",
-    help = "Math Operators: +, -, ×, ÷, ^, %"
-)
+@client.command(description = "Math Operators: +, -, ×, ÷, ^, %")
 async def math(ctx, *, content: str):
     if await client.is_owner(ctx.author):
         await ctx.reply(eval(content))
@@ -112,11 +112,9 @@ async def math(ctx, *, content: str):
         await ctx.reply(f"`{float(eval(content))}`")
 
 @client.command()
-async def reverse(ctx, *, content):
-    await ctx.reply(content[::-1])
-
-@client.command()
 async def poll(ctx, title, *options):
+    if options == ():
+        raise commands.MissingRequiredArgument(Parameter("options", Parameter.VAR_POSITIONAL))
     var = ("1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟")
     message = await ctx.send(embed = discord.Embed(
         title = f"Poll: {title}",
@@ -131,78 +129,18 @@ async def poll(ctx, title, *options):
             break
         await message.add_reaction(var[i])
 
-@client.command(
-    brief = "Converts into binary"
-)
-async def binary(ctx, *, content):
-    await ctx.reply(" ".join(format(ord(i), '08b') for i in content))
-                                    
-@client.command()
-async def say(ctx, *, content: str):
-    if ctx.message.reference == None:
-        await ctx.send(content.format(author = ctx.author, channel = ctx.channel, guild = ctx.guild))
-    else:
-        await ctx.message.reference.resolved.reply(content.format(author = ctx.author, channel = ctx.channel, guild = ctx.guild))
+@client.command(aliases = ["cds"])
+async def cooldowns(ctx):
+    await ctx.reply(embed = discord.Embed(
+        title = "Cooldowns",
+        description = "\n".join(f"{index}. `{command.name}`: <t:{int(datetime.datetime.utcnow().timestamp() + command.get_cooldown_retry_after(ctx))}:F>" for index, command in enumerate(filter(lambda command: command.is_on_cooldown(ctx), client.commands), start = 1)) or "Nothing found.",
+        color = 0xffe5ce
+    ).set_footer(
+        text = ctx.author.name,
+        icon_url = ctx.author.avatar_url
+    ))
 
-@client.command(
-    brief = "Creates an equation"
-)
-async def equation(ctx):
-    num1 = random.randint(-9, 9)
-    opt = random.choice(("+", "-", "*"))
-    num2 = random.randint(-9, 9)
-    reply = await ctx.reply(f"{num1} {opt.replace('*', '×')} {num2} = ?")
-    def check(message):
-        try:
-            int(message.content)
-        except ValueError:
-            return False
-        else:
-            return message.author == ctx.author and message.channel == ctx.channel
-    try:
-        message = await client.wait_for("message", check = check, timeout = 10)
-        if int(message.content) == eval(f"{num1} {opt} {num2}"):
-            await message.reply("Correct!")
-        else:
-            await message.reply(f"Wrong! It was {eval(f'{num1} {opt} {num2}')}")
-    except asyncio.TimeoutError:
-        await reply.edit(content = f"You didn't reply in time. It was {eval(f'{num1} {opt} {num2}')}")
-
-@client.command(
-    description = """
-Type Fizzbuzz if the number shown is divisable by 3 and 5
-else type Fizz if it's divisable by 3
-else type Buzz if it's divisable by 5
-else type the number sh own
-    """
-)
-async def fizzbuzz(ctx):
-    reply = await ctx.reply("Starting...", mention_author = True)
-    await asyncio.sleep(3)
-    attempt = 1
-    while True:
-        number = random.randint(1, attempt * 5)
-        await reply.edit(content = f"{number} = Fizzbuzz/Fizz/Buzz/{number}?")
-        try:
-            message = await client.wait_for("message", check = lambda message: message.author == ctx.author and message.channel == ctx.channel and not message.content.startswith("s!"), timeout = 10)
-            if message.content.lower() == ("fizzbuzz" if number % 3 == 0 and number % 5 == 0 else "fizz" if number % 3 == 0 else "buzz" if number % 5 == 0 else str(number)):
-                await reply.edit(content = "Correct!")
-                await asyncio.sleep(3)
-                attempt += 1
-            else:
-                await reply.edit(content = "Wrong!")
-                break
-            await message.delete()
-        except asyncio.TimeoutError:
-            await reply.edit(content = "You didn't reply in time.")
-            break
-    await asyncio.sleep(3)
-    await reply.edit(content = f"Congrats! you managed to reach up to {attempt} attempts!")
-
-@client.command(
-    brief = "Rock Paper Scissors!",
-    description = "Bot requires Add Reactions permission(s) to run this command.",
-    help = """
+@client.command(brief = "Rock Paper Scissors!", description = "Bot requires Add Reactions permission(s) to run this command.", help = """
  - Rock & Rock: Tie
  - Rock & Paper: Lose
  - Rock & Scissors: Win
@@ -211,9 +149,7 @@ async def fizzbuzz(ctx):
  - Paper & Scissors: Lose
  - Scissors & Rock: Lose
  - Scissors & Paper: Win
- - Scissors & Scissors: Tie
-    """
-)
+ - Scissors & Scissors: Tie""")
 @commands.bot_has_permissions(add_reactions = True)
 async def rps(ctx, member: discord.Member = None):
     if member == None:
@@ -238,16 +174,18 @@ async def rps(ctx, member: discord.Member = None):
             await message.delete()
             p2 = moves.index(str(reaction.emoji))
         if p1 - p2 in (-2, 1):
-            await ctx.reply(f"{ctx.author.display_name} wins!\n\n{ctx.author.display_name}: {moves[p1]} | {member.display_name}: {moves[p2]}")
+            await ctx.reply(f"{ctx.author.display_name} wins!:\n\n{ctx.author.display_name}: {moves[p1]} | {member.display_name}: {moves[p2]}")
         elif p1 - p2 in (-1, 2):
             await ctx.reply(f"{member.display_name} wins!\n\n{ctx.author.display_name}: {moves[p1]} | {member.display_name}: {moves[p2]}")
         else:
-            await ctx.reply(f"It's a tie!\n\n{ctx.author.display_name}: {moves[p1]} | {member.display_name}: {moves[p2]}")
+            await ctx.reply( f"It's a tie!\n\n{ctx.author.display_name}: {moves[p1]} | {member.display_name}: {moves[p2]}")
     except asyncio.TimeoutError:
         await message.edit(content = "You didn't reply in time.")
 
 @client.command()
-async def embed(ctx, title: str, description: str, url: str = ""):
+async def embed(ctx, title: str = "", description: str = "", url: str = ""):
+    if title + description == "":
+        raise commands.MissingRequiredArgument(Parameter("title" if title == "" else "description", Parameter.VAR_POSITIONAL))
     embed = discord.Embed(
         title = title,
         description = description,
@@ -261,26 +199,49 @@ async def embed(ctx, title: str, description: str, url: str = ""):
         embed.set_image(
             url = ctx.message.attachments[0].url
         )
-    await ctx.send(embed = embed)
+    if ctx.message.reference != None and ctx.message.reference.resolved != None and ctx.message.reference.resolved.author == client.user:
+        await ctx.message.reference.resolved.edit(embed = embed)
+    else:
+        await ctx.send(embed = embed)
 
 @client.command()
 async def invite(ctx):
     await ctx.reply("<https://Senjibot.senjienji.repl.co/invite>")
 
 #Informational Commands
-@client.command(
-    aliases = ["member"]
-)
+@client.command()
 @commands.bot_has_permissions(attach_files = True)
 async def user(ctx, *, user: discord.User = None):
     if user == None:
         user = ctx.author
-    try:
-        member = await ctx.guild.fetch_member(user.id)
-        await ctx.reply(embed = discord.Embed(
-            title = "Member Info",
-            url = f"https://discord.com/users/{member.id}",
-            description = f"""
+    await ctx.reply(embed = discord.Embed(
+        title = "User Info",
+        description = f"""
+Name: {user.name}
+Tag: #{user.discriminator}
+ID: {user.id}
+Bot? {'Yes' if user.bot else 'No'}
+Created at: <t:{int(user.created_at.timestamp())}:F>
+Avatar URL: [Link]({user.avatar_url})
+        """,
+        color = 0xffe5ce
+    ).set_image(
+        url = user.avatar_url
+    ).set_footer(
+        text = ctx.author.name,
+        icon_url = ctx.author.avatar_url
+    ))
+
+@client.command()
+@commands.guild_only()
+@commands.bot_has_permissions(attach_files = True)
+async def member(ctx, *, member: discord.Member = None):
+    if member == None:
+        member = ctx.author
+    await ctx.reply(embed = discord.Embed(
+        title = "Member Info",
+        url = f"https://discord.com/users/{member.id}",
+        description = f"""
 Nick: {member.nick}
 Name: {member.name}
 Tag: #{member.discriminator}
@@ -290,32 +251,14 @@ Roles: {len(member.roles) - 1}
 Created at: <t:{int(member.created_at.timestamp())}:F>
 Joined at: <t:{int(member.joined_at.timestamp())}:F>
 Avatar URL: [Link]({member.avatar_url})
-            """,
-            color = 0xffe5ce
-        ).set_image(
-            url = member.avatar_url
-        ).set_footer(
-            text = ctx.author.name,
-            icon_url = ctx.author.avatar_url
-        ))
-    except discord.NotFound:
-        await ctx.reply(embed = discord.Embed(
-            title = "User Info",
-            description = f"""
-Name: {user.name}
-Tag: #{user.discriminator}
-ID: {user.id}
-Bot? {'Yes' if user.bot else 'No'}
-Created at: <t:{int(user.created_at.timestamp())}:F>
-Avatar URL: [Link]({user.avatar_url})
-            """,
-            color = 0xffe5ce
-        ).set_image(
-            url = user.avatar_url
-        ).set_footer(
-            text = ctx.author.name,
-            icon_url = ctx.author.avatar_url
-        ))
+        """,
+        color = 0xffe5ce
+    ).set_image(
+        url = member.avatar_url
+    ).set_footer(
+        text = ctx.author.name,
+        icon_url = ctx.author.avatar_url
+    ))
 
 @client.command(
     aliases = ["server"]
@@ -385,9 +328,7 @@ Version: {discord.__version__}
     ))
 
 #Moderation Commands
-@client.command(
-    description = "You need the Kick Members permissions to use this command."
-)
+@client.command()
 @commands.guild_only()
 @commands.has_guild_permissions(kick_members = True)
 @commands.bot_has_guild_permissions(kick_members = True)
@@ -395,9 +336,7 @@ async def kick(ctx, user: discord.User, *, reason: str = "no reason"):
     await ctx.guild.kick(user = user, reason = f"By {ctx.author.name} for {reason}.")
     await ctx.reply(f"{user.name} has been kicked for {reason}.")
 
-@client.command(
-    description = "You need the Ban Members permission to use this command."
-)
+@client.command()
 @commands.guild_only()
 @commands.has_guild_permissions(ban_members = True)
 @commands.bot_has_guild_permissions(ban_members = True)
@@ -405,9 +344,7 @@ async def ban(ctx, user: discord.User, *, reason: str = "no reason"):
     await ctx.guild.ban(user = user, reason = f"By {ctx.author.name} for {reason}.", delete_message_days = 0)
     await ctx.reply(f"{user.name} has been banned for {reason}.")
 
-@client.command(
-    description = "You need the Ban Members permission to use this command."
-)
+@client.command()
 @commands.guild_only()
 @commands.has_guild_permissions(ban_members = True)
 @commands.bot_has_guild_permissions(ban_members = True)
@@ -416,19 +353,17 @@ async def unban(ctx, user: discord.User, *, reason: str = "no reason"):
     await ctx.reply(f"{user.name} has been unbanned for {reason}.")
 
 @client.command()
-@commands.guild_only()
 async def prefix(ctx, prefix = None):
     if prefix == None:
-        await ctx.reply(f"My current prefix is `{db['Prefix'][str(ctx.guild.id)]}`.")
-    elif ctx.author.guild_permissions >= discord.Permissions(manage_guild = True):
-        db["Prefix"][str(ctx.guild.id)] = prefix
-        await ctx.reply(f"Prefix has been set to `{db['Prefix'][str(ctx.guild.id)]}`.")
-    else:
-        raise commands.MissingPermissions(["manage_guild"])
+        await ctx.reply(f"My current prefix is `{client.command_prefix(client, ctx.message)}`.")
+    elif ctx.guild != None:
+        if ctx.author.guild_permissions >= discord.Permissions(manage_guild = True):
+            db["Prefix"][str(ctx.guild.id)] = prefix
+            await ctx.reply(f"Prefix has been set to `{db['Prefix'][str(ctx.guild.id)]}`.")
+        else:
+            raise commands.MissingPermissions(["manage_guild"])
 
-@client.command(
-    description = "You need the Manage Roles permission to use this command."
-)
+@client.command()
 @commands.guild_only()
 @commands.has_guild_permissions(manage_roles = True)
 @commands.bot_has_guild_permissions(manage_roles = True)
@@ -444,9 +379,41 @@ async def role(ctx, role: discord.Role, *, member: discord.Member = None):
         await member.add_roles(role, reason = f"By {ctx.author.name}")
         await ctx.reply(f"Added {role.mention} to {member.mention}.")
 
-@client.command(
-    description = "You need the Manage Messages permission to use this command."
-)
+@client.command()
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild = True)
+async def enable(ctx, command):
+    found = False
+    for cmd in client.commands:
+        if command.lower() in (cmd.name, *cmd.aliases):
+            command = cmd.name
+            found = True
+            break
+    if not found:
+        raise commands.BadArgument(f'Command "{command}" not found.')
+    elif command in ("enable", "disable", "help"):
+        raise commands.UserInputError("cannot enable this command.")
+    db["Enabled"][str(ctx.guild.id)][command] = True
+    await ctx.reply(f'"{command}" enabled.')
+
+@client.command()
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild = True)
+async def disable(ctx, command):
+    found = False
+    for cmd in client.commands:
+        if command.lower() in (cmd.name, *cmd.aliases):
+            command = cmd.name
+            found = True
+            break
+    if not found:
+        raise commands.BadArgument(f'Command "{command}" not found')
+    elif command in ("enable", "disable", "help"):
+        raise commands.UserInputError("cannot disable this command.")
+    db["Enabled"][str(ctx.guild.id)][command] = False
+    await ctx.reply(f'"{command}" disabled.')
+
+@client.command()
 @commands.guild_only()
 @commands.has_permissions(manage_messages = True)
 @commands.bot_has_permissions(manage_messages = True, read_message_history = True)
@@ -458,14 +425,145 @@ async def purge(ctx, limit: str):
     purge = await ctx.channel.purge(limit = limit + 1)
     await ctx.send(f"Purged {len(purge) - 1} messages.", delete_after = 5)
 
+#Currency Commands
+@client.command(aliases = ["bal"])
+async def balance(ctx, *, member: discord.Member = None):
+    if member == None:
+        member = ctx.author
+    if member.bot:
+        return
+    if str(member.id) not in db["Balance"]:
+        db["Balance"][str(member.id)] = {} #{"user_id": amount}
+    await ctx.reply(f"{member.name} have ${db['Balance'][str(member.id)]}.")
+
+@client.command(aliases = ["lb"])
+async def leaderboard(ctx):
+    await ctx.reply(embed = discord.Embed(
+        title = "Leaderboard",
+        description = "\n".join(f"{index}. `{member.name}`: ${amount}" for index, (member, amount) in enumerate(sorted(filter(lambda i: i[0] != None and i[1] > 0, [(ctx.guild.get_member(int(i[0])), i[1]) for i in db["Balance"].items()]), key = lambda i: i[1], reverse = True), start = 1)),
+        color = 0xffe5ce
+    ).set_footer(
+        text = ctx.author.display_name,
+        icon_url = ctx.author.avatar_url
+    ))
+
+@client.command()
+@commands.cooldown(rate = 1, per = 1 * 60 * 60, type = commands.BucketType.user)
+async def work(ctx):
+    if str(ctx.author.id) not in db["Balance"]:
+        db["Balance"][str(ctx.author.id)] = {} #{"user_id": amount}
+    gain = random.randint(250, 500)
+    db["Balance"][str(ctx.author.id)] += gain
+    await ctx.reply(f"You got ${gain}.")
+
+@client.command()
+async def gamble(ctx, amount: int):
+    if str(ctx.author.id) not in db["Balance"]:
+        db["Balance"][str(ctx.author.id)] = 0
+    if amount < 1:
+        await ctx.reply("amount must be higher than 0.")
+    elif db["Balance"][str(ctx.author.id)] >= amount:
+        p1, p2 = (random.randint(2, 12), random.randint(2, 12))
+        if p1 > p2:
+            db["Balance"][str(ctx.author.id)] += amount
+            await ctx.reply(f"""
+You won ${amount}!
+
+{ctx.author.name}: {p1}
+{client.user.name}: {p2}
+                            """)
+        elif p1 < p2:
+            db["Balance"][str(ctx.author.id)] -= amount
+            await ctx.reply(f"""
+You lost ${amount}.
+
+{ctx.author.name}: {p1}
+{client.user.name}: {p2}
+                            """)
+        else:
+            await ctx.reply(f"""
+It's a tie?
+
+{ctx.author.name}: {p1}
+{client.user.name}: {p2}
+                            """)
+    else:
+        await ctx.reply(f"You are ${amount - db['Balance'][str(ctx.author.id)]} short.")
+
+#Shop Commands
+@client.group()
+async def shop(ctx):
+    if str(ctx.guild.id) not in db["Shop"]:
+        db["Shop"][str(ctx.guild.id)] = {} #{"name": price}
+    if ctx.invoked_subcommand == None:
+        await ctx.reply(embed = discord.Embed(
+            title = "Shop",
+            description = "\n".join(f"{index}. `{name}`: ${price}" for index, (name, price) in enumerate(sorted(db["Shop"][str(ctx.guild.id)].items(), key = lambda i: i[1]), start = 1)),
+            color = 0xffe5ce
+        ).set_footer(
+            text = ctx.author.display_name,
+            icon_url = ctx.author.avatar_url
+        ))
+
+@shop.command()
+@commands.has_guild_permissions(manage_guild = True)
+async def add(ctx, name, price: int):
+    if name in db["Shop"][str(ctx.guild.id)]:
+        await ctx.reply(f'Item "{name}" is already added.')
+    elif price > -1:
+        db["Shop"][str(ctx.guild.id)][name] = price
+        await ctx.reply(f'Item "{name}" added.')
+    else:
+        await ctx.reply("price must be greater than -1.")
+
+@shop.command()
+@commands.has_guild_permissions(manage_guild = True)
+async def edit(ctx, name, price: int):
+    if name not in db["Shop"][str(ctx.guild.id)]:
+        await ctx.reply(f'Item "{name}" not found.')
+    elif price > -1:
+        db["Shop"][str(ctx.guild.id)][name] = price
+        await ctx.reply(f'Item "{name}" edited.')
+    else:
+        await ctx.reply("price must be greater than -1.")
+
+@shop.command()
+@commands.has_guild_permissions(manage_guild = True)
+async def remove(ctx, *, name):
+    if name in db["Shop"][str(ctx.guild.id)]:
+        del db["Shop"][str(ctx.guild.id)][name]
+        await ctx.reply(f'Item "{name}" removed.')
+    else:
+        await ctx.reply(f'Item "{name}" not found.')
+
+@client.command()
+async def buy(ctx, *, name):
+    if str(ctx.author.id) not in db["Balance"]:
+        db["Balance"][str(ctx.author.id)] = 0
+    if str(ctx.guild.id) not in db["Shop"]:
+        db["Shop"][str(ctx.guild.id)] = {} #{"name": price}
+    if name not in db["Shop"][str(ctx.guild.id)]:
+        await ctx.reply(f'Item "{name}" not found.')
+    elif db["Balance"][str(ctx.author.id)] >= db["Shop"][str(ctx.guild.id)][name]:
+        db["Balance"][str(ctx.author.id)] -= db["Shop"][str(ctx.guild.id)][name]
+        await ctx.reply(f'Item "{name}" purchased.')
+    else:
+        await ctx.reply(f"You are ${db['Shop'][str(ctx.guild.id)][name] - db['Balance'][str(ctx.author.id)]} short.")
+
 #Private Commands
 @client.command(hidden = True)
 @commands.is_owner()
-async def doc(ctx, *, search: str = ""):
+async def doc(ctx, *, search = ""):
     if search == "":
         await ctx.reply("https://discordpy.readthedocs.io/en/stable/")
     else:
         await ctx.reply(f"https://discordpy.readthedocs.io/en/stable/search.html?q={search.replace(' ', '+')}")
+
+@client.command(hidden = True)
+@commands.is_owner()
+async def set(ctx, member: discord.Member, amount: int):
+    db["Balance"][str(member.id)] = amount
+    await ctx.reply(f"{member.display_name}'s balance has been set to ${amount}.")
 
 @client.command(hidden = True)
 @commands.is_owner()
@@ -476,6 +574,13 @@ async def invites(ctx, *, guild: discord.Guild):
         await ctx.reply(f"Not enough permission.")
     else:
         await ctx.author.send("\n".join(invite.url for invite in invites) or "No invites.")
+
+@client.command(hidden = True)
+@commands.is_owner()
+async def edit(ctx, *, content):
+    if ctx.message.reference != None and ctx.message.reference.resolved != None and ctx.message.reference.resolved.author == client.user:
+        await ctx.message.reference.resolved.edit(content = content)
+    await ctx.message.delete()
 
 @client.command(hidden = True)
 @commands.is_owner()
