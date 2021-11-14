@@ -21,7 +21,7 @@ class MinimalHelpCommand(commands.MinimalHelpCommand):
     async def send_pages(self):
         for page in self.paginator.pages:
             await self.get_destination().send(embed = discord.Embed(
-                title = "Help!",
+                title = "Help",
                 description = page,
                 color = 0xffe5ce
             ))
@@ -75,13 +75,13 @@ async def on_ready():
 
 @client.event
 async def on_command_error(ctx, error):
-    print(f"{type(error)}: {error}")
+    print(f"{str(type(error))[8:-2]}: {error}")
     content = str(error)
     if isinstance(error, commands.CommandOnCooldown):
         content = f"You are on cooldown. Try again <t:{int(datetime.datetime.utcnow().timestamp() + error.retry_after)}:R>"
     elif isinstance(error, commands.NotOwner):
         content = f'Command "{ctx.command.name}" is not found'
-    elif isinstance(error, commands.CommandNotFound) or str(error) == f"The global check functions for command {ctx.command.name} failed.":
+    elif isinstance(error, (commands.CommandNotFound, commands.NotOwner)) or str(error) == f"The global check functions for command {ctx.command.name} failed.":
         return
     try:
         message = await ctx.reply(content)
@@ -140,7 +140,7 @@ async def cooldowns(ctx):
         icon_url = ctx.author.avatar_url
     ))
 
-@client.command(brief = "Rock Paper Scissors!", description = "Bot requires Add Reactions permission(s) to run this command.", help = """
+@client.command(brief = "Rock Paper Scissors", help = """
  - Rock & Rock: Tie
  - Rock & Paper: Lose
  - Rock & Scissors: Win
@@ -431,16 +431,17 @@ async def balance(ctx, *, member: discord.Member = None):
     if member == None:
         member = ctx.author
     if member.bot:
-        return
+        raise commands.BadArgument("member must not be a bot")
     if str(member.id) not in db["Balance"]:
-        db["Balance"][str(member.id)] = {} #{"user_id": amount}
+        db["Balance"][str(member.id)] = 0
     await ctx.reply(f"{member.name} have ${db['Balance'][str(member.id)]}.")
 
 @client.command(aliases = ["lb"])
+@commands.guild_only()
 async def leaderboard(ctx):
     await ctx.reply(embed = discord.Embed(
         title = "Leaderboard",
-        description = "\n".join(f"{index}. `{member.name}`: ${amount}" for index, (member, amount) in enumerate(sorted(filter(lambda i: i[0] != None and i[1] > 0, [(ctx.guild.get_member(int(i[0])), i[1]) for i in db["Balance"].items()]), key = lambda i: i[1], reverse = True), start = 1)),
+        description = "\n".join(f"{index}. `{member.display_name}#{member.discriminator}`: ${amount}" for index, (member, amount) in enumerate(sorted(filter(lambda i: i[0] != None and i[1] > 0, [(ctx.guild.get_member(int(i[0])), i[1]) for i in db["Balance"].items()]), key = lambda i: i[1], reverse = True), start = 1)),
         color = 0xffe5ce
     ).set_footer(
         text = ctx.author.display_name,
@@ -451,7 +452,7 @@ async def leaderboard(ctx):
 @commands.cooldown(rate = 1, per = 1 * 60 * 60, type = commands.BucketType.user)
 async def work(ctx):
     if str(ctx.author.id) not in db["Balance"]:
-        db["Balance"][str(ctx.author.id)] = {} #{"user_id": amount}
+        db["Balance"][str(ctx.author.id)] = 0 #{"user_id": amount}
     gain = random.randint(250, 500)
     db["Balance"][str(ctx.author.id)] += gain
     await ctx.reply(f"You got ${gain}.")
@@ -492,6 +493,7 @@ It's a tie?
 
 #Shop Commands
 @client.group()
+@commands.guild_only()
 async def shop(ctx):
     if str(ctx.guild.id) not in db["Shop"]:
         db["Shop"][str(ctx.guild.id)] = {} #{"name": price}
@@ -518,14 +520,16 @@ async def add(ctx, name, price: int):
 
 @shop.command()
 @commands.has_guild_permissions(manage_guild = True)
-async def edit(ctx, name, price: int):
+async def edit(ctx, name, other):
     if name not in db["Shop"][str(ctx.guild.id)]:
         await ctx.reply(f'Item "{name}" not found.')
-    elif price > -1:
-        db["Shop"][str(ctx.guild.id)][name] = price
+    elif other.isnumeric():
+        db["Shop"][str(ctx.guild.id)][name] = int(other)
         await ctx.reply(f'Item "{name}" edited.')
     else:
-        await ctx.reply("price must be greater than -1.")
+        db["Shop"][str(ctx.guild.id)][other] = db["Shop"][str(ctx.guild.id)][name]
+        del db["Shop"][str(ctx.guild.id)][name]
+        await ctx.reply(f'Item "{name}" edited to "{other}".')
 
 @shop.command()
 @commands.has_guild_permissions(manage_guild = True)
@@ -537,6 +541,7 @@ async def remove(ctx, *, name):
         await ctx.reply(f'Item "{name}" not found.')
 
 @client.command()
+@commands.guild_only()
 async def buy(ctx, *, name):
     if str(ctx.author.id) not in db["Balance"]:
         db["Balance"][str(ctx.author.id)] = 0
@@ -577,27 +582,17 @@ async def invites(ctx, *, guild: discord.Guild):
 
 @client.command(hidden = True)
 @commands.is_owner()
-async def edit(ctx, *, content):
-    if ctx.message.reference != None and ctx.message.reference.resolved != None and ctx.message.reference.resolved.author == client.user:
-        await ctx.message.reference.resolved.edit(content = content)
-    await ctx.message.delete()
-
-@client.command(hidden = True)
-@commands.is_owner()
 async def leave(ctx, *, guild: discord.Guild = None):
     if guild == None:
         guild = ctx.guild
     await ctx.message.add_reaction("✅")
     await ctx.message.add_reaction("❎")
     try:
-        reaction, user = await client.wait_for("reaction_add", check = lambda reaction, user: reaction.message == ctx.message and str(reaction.emoji) in ["✅", "❎"] and user == ctx.author, timeout = 10)
-        if str(reaction.emoji) == "✅":
-            await ctx.message.remove_reaction("✅", client.user)
-            await ctx.message.remove_reaction("❎", client.user)
+        reaction, user = await client.wait_for("reaction_add", check = lambda reaction, user: reaction.message == ctx.message and reaction.emoji in ("✅", "❎") and user == ctx.author, timeout = 10)
+        await ctx.message.remove_reaction("✅", client.user)
+        await ctx.message.remove_reaction("❎", client.user)
+        if reaction.emoji == "✅":
             await guild.leave()
-        elif str(reaction.emoji) == "❎":
-            await ctx.message.remove_reaction("✅", client.user)
-            await ctx.message.remove_reaction("❎", client.user)
     except asyncio.TimeoutError:
         await ctx.message.remove_reaction("✅", client.user)
         await ctx.message.remove_reaction("❎", client.user)

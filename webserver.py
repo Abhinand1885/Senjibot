@@ -33,10 +33,6 @@ def home():
         <a href="https://Senjibot.senjienji.repl.co/invite">
             Invite me!
         </a>
-        <br />
-        <a href="https://Senjibot.senjienji.repl.co/lounge">
-            My owner's lounge
-        </a>
     </body>
 </html>
     """
@@ -44,10 +40,6 @@ def home():
 @app.route("/invite")
 def invite():
     return redirect(discord.utils.oauth_url(893338697947316225, permissions = discord.Permissions(permissions = 268561478)))
-
-@app.route("/lounge")
-def lounge():
-    return redirect("https://discord.gg/hx3Vmcq8aa")
 
 def keep_alive():
     t = Thread(target = lambda: app.run(host = "0.0.0.0", port = 8080))
