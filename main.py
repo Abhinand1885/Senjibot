@@ -102,13 +102,13 @@ async def on_guild_remove(guild):
 #Miscellaneous Commands
 @client.command(aliases = ("eval",))
 async def evaluate(ctx, *, content):
-    await ctx.reply(eval(content, {
+    await ctx.reply(embed = discord.Embed(description = str(eval(content, {
         "__builtins__": (__builtins__ if await client.is_owner(ctx.author) else None),
         "ctx": ctx,
         "client": client,
         "timestamp": __import__("time").time(),
         "db": db
-    }))
+    }))))
 
 @client.command(aliases = ("cds",))
 async def cooldowns(ctx):

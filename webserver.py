@@ -26,9 +26,6 @@ def home():
         <p>
             Senjibot is a multipurpose bot that has economy system and editable guild-only shop
         </p>
-        <a href="https://top.gg/bot/893338697947316225">
-            <img src="https://top.gg/api/widget/893338697947316225.svg" />
-        </a>
         <hr />
         <a href="https://Senjibot.senjienji.repl.co/invite">
             Invite me!
