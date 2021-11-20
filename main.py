@@ -79,8 +79,6 @@ async def on_command_error(ctx, error):
     content = str(error)
     if isinstance(error, commands.CommandOnCooldown):
         content = f"You are on cooldown. Try again <t:{int(datetime.datetime.utcnow().timestamp() + error.retry_after)}:R>"
-    elif isinstance(error, commands.NotOwner):
-        content = f'Command "{ctx.command.name}" is not found'
     elif isinstance(error, (commands.CommandNotFound, commands.NotOwner)) or str(error) == f"The global check functions for command {ctx.command.name} failed.":
         return
     try:
@@ -95,41 +93,24 @@ async def on_command_error(ctx, error):
 
 @client.event
 async def on_guild_join(guild):
-    await client.get_user(client.owner_id).send(f"Added to {guild.name}.")
+    await client.get_user(client.owner_id).send(f"Added to `{guild.name}`.")
 
 @client.event
 async def on_guild_remove(guild):
-    await client.get_user(client.owner_id).send(f"Removed from {guild.name}.")
+    await client.get_user(client.owner_id).send(f"Removed from `{guild.name}`.")
 
 #Miscellaneous Commands
-@client.command(description = "Math Operators: +, -, ×, ÷, ^, %")
-async def math(ctx, *, content: str):
-    if await client.is_owner(ctx.author):
-        await ctx.reply(eval(content))
-    else:
-        content = "".join(filter(lambda i: i in "9876543210+-×÷^%", content))
-        content = content.replace("^", "**").replace("÷", "/").replace("×", "*")
-        await ctx.reply(f"`{float(eval(content))}`")
+@client.command(aliases = ("eval",))
+async def evaluate(ctx, *, content):
+    await ctx.reply(eval(content, {
+        "__builtins__": (__builtins__ if await client.is_owner(ctx.author) else None),
+        "ctx": ctx,
+        "client": client,
+        "timestamp": __import__("time").time(),
+        "db": db
+    }))
 
-@client.command()
-async def poll(ctx, title, *options):
-    if options == ():
-        raise commands.MissingRequiredArgument(Parameter("options", Parameter.VAR_POSITIONAL))
-    var = ("1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟")
-    message = await ctx.send(embed = discord.Embed(
-        title = f"Poll: {title}",
-        description = "\n".join(f"{i + 1}. `{name}`" for i, name in filter(lambda i: i[0] < 10, enumerate(options))),
-        color = 0xffe5ce
-    ).set_footer(
-        text = ctx.author.display_name,
-        icon_url = ctx.author.avatar_url
-    ))
-    for i in range(len(options)):
-        if i > 9:
-            break
-        await message.add_reaction(var[i])
-
-@client.command(aliases = ["cds"])
+@client.command(aliases = ("cds",))
 async def cooldowns(ctx):
     await ctx.reply(embed = discord.Embed(
         title = "Cooldowns",
@@ -199,7 +180,7 @@ async def embed(ctx, title: str = "", description: str = "", url: str = ""):
         embed.set_image(
             url = ctx.message.attachments[0].url
         )
-    if ctx.message.reference != None and ctx.message.reference.resolved != None and ctx.message.reference.resolved.author == client.user:
+    if ctx.message.reference != None and ctx.message.reference.resolved != None and ctx.message.reference.resolved.author == client.user and ctx.message.reference.resolved.author == ctx.author:
         await ctx.message.reference.resolved.edit(embed = embed)
     else:
         await ctx.send(embed = embed)
@@ -260,9 +241,7 @@ Avatar URL: [Link]({member.avatar_url})
         icon_url = ctx.author.avatar_url
     ))
 
-@client.command(
-    aliases = ["server"]
-)
+@client.command(aliases = ("server",))
 @commands.bot_has_permissions(attach_files = True)
 async def guild(ctx, *, guild: discord.Guild = None):
     if guild == None:
@@ -287,9 +266,7 @@ Icon URL: [Link]({guild.icon_url})
         icon_url = ctx.author.avatar_url
     ))
 
-@client.command(
-    aliases = ["emote"]
-)
+@client.command(aliases = ("emote",))
 @commands.bot_has_permissions(attach_files = True)
 async def emoji(ctx, *, emoji: discord.Emoji):
     await ctx.reply(embed = discord.Embed(
@@ -426,7 +403,7 @@ async def purge(ctx, limit: str):
     await ctx.send(f"Purged {len(purge) - 1} messages.", delete_after = 5)
 
 #Currency Commands
-@client.command(aliases = ["bal"])
+@client.command(aliases = ("bal",))
 async def balance(ctx, *, member: discord.Member = None):
     if member == None:
         member = ctx.author
@@ -436,12 +413,12 @@ async def balance(ctx, *, member: discord.Member = None):
         db["Balance"][str(member.id)] = 0
     await ctx.reply(f"{member.name} have ${db['Balance'][str(member.id)]}.")
 
-@client.command(aliases = ["lb"])
+@client.command(aliases = ("lb",))
 @commands.guild_only()
 async def leaderboard(ctx):
     await ctx.reply(embed = discord.Embed(
         title = "Leaderboard",
-        description = "\n".join(f"{index}. `{member.display_name}#{member.discriminator}`: ${amount}" for index, (member, amount) in enumerate(sorted(filter(lambda i: i[0] != None and i[1] > 0, [(ctx.guild.get_member(int(i[0])), i[1]) for i in db["Balance"].items()]), key = lambda i: i[1], reverse = True), start = 1)),
+        description = "\n".join(f"{index}. `{member.display_name} ({member.name}#{member.discriminator})`: ${amount}" for index, (member, amount) in enumerate(sorted(filter(lambda i: i[0] != None and i[1] > 0, [(ctx.guild.get_member(int(i[0])), i[1]) for i in db["Balance"].items()]), key = lambda i: i[1], reverse = True), start = 1)),
         color = 0xffe5ce
     ).set_footer(
         text = ctx.author.display_name,
@@ -452,8 +429,8 @@ async def leaderboard(ctx):
 @commands.cooldown(rate = 1, per = 1 * 60 * 60, type = commands.BucketType.user)
 async def work(ctx):
     if str(ctx.author.id) not in db["Balance"]:
-        db["Balance"][str(ctx.author.id)] = 0 #{"user_id": amount}
-    gain = random.randint(250, 500)
+        db["Balance"][str(ctx.author.id)] = 0 
+    gain = random.randint(500, 1000)
     db["Balance"][str(ctx.author.id)] += gain
     await ctx.reply(f"You got ${gain}.")
 
@@ -582,20 +559,8 @@ async def invites(ctx, *, guild: discord.Guild):
 
 @client.command(hidden = True)
 @commands.is_owner()
-async def leave(ctx, *, guild: discord.Guild = None):
-    if guild == None:
-        guild = ctx.guild
-    await ctx.message.add_reaction("✅")
-    await ctx.message.add_reaction("❎")
-    try:
-        reaction, user = await client.wait_for("reaction_add", check = lambda reaction, user: reaction.message == ctx.message and reaction.emoji in ("✅", "❎") and user == ctx.author, timeout = 10)
-        await ctx.message.remove_reaction("✅", client.user)
-        await ctx.message.remove_reaction("❎", client.user)
-        if reaction.emoji == "✅":
-            await guild.leave()
-    except asyncio.TimeoutError:
-        await ctx.message.remove_reaction("✅", client.user)
-        await ctx.message.remove_reaction("❎", client.user)
+async def leave(ctx, *, guild: discord.Guild):
+	await guild.leave()
 
 keep_alive()
 client.run(os.environ["token"])
