@@ -3,10 +3,8 @@ from discord.ext import commands
 from webserver import keep_alive
 from inspect import Parameter
 from replit import db
-import datetime
-import asyncio
+from time import time as timestamp
 import random
-import os
 
 if "Prefix" not in db:
     db["Prefix"] = {} #{"guild_id": "prefix"}
@@ -20,10 +18,13 @@ if "Enabled" not in db:
 class MinimalHelpCommand(commands.MinimalHelpCommand):
     async def send_pages(self):
         for page in self.paginator.pages:
-            await self.get_destination().send(embed = discord.Embed(
+            await self.context.message.reply(embed = discord.Embed(
                 title = "Help",
                 description = page,
                 color = 0xffe5ce
+            ).set_footer(
+                text = self.context.author.display_name,
+                icon_url = self.context.author.avatar_url
             ))
 
 def get_prefix(client, message):
@@ -36,7 +37,7 @@ def get_prefix(client, message):
 client = commands.Bot(
     command_prefix = get_prefix,
     activity = discord.Game("Python"),
-    help_command = MinimalHelpCommand(),
+    help_command = MinimalHelpCommand(no_category = "Commands"),
     owner_id = 902371374033670224,
     allowed_mentions = discord.AllowedMentions(
         everyone = False,
@@ -62,6 +63,9 @@ async def is_enabled(ctx):
         db["Enabled"][str(ctx.guild.id)][ctx.command.name] = True
     return db["Enabled"][str(ctx.guild.id)][ctx.command.name]
 
+async def usage(ctx): await client.get_user(client.owner_id).send(f"`{ctx.author}` used `{ctx.command.name}`{str() if ctx.guild == None else f' in `{ctx.guild.name}`'}\n```\n{ctx.message.content}```")
+client.after_invoke(usage)
+
 #Events
 @client.event
 async def on_connect():
@@ -70,7 +74,7 @@ async def on_connect():
 @client.event
 async def on_ready():
     print("Ready")
-    client.launch_time = datetime.datetime.utcnow()
+    client.launch_time = __import__("datetime").datetime.utcnow()
     await client.get_user(client.owner_id).send(f"Online since <t:{int(client.launch_time.timestamp())}:d> <t:{int(client.launch_time.timestamp())}:T>")
 
 @client.event
@@ -78,7 +82,7 @@ async def on_command_error(ctx, error):
     print(f"{str(type(error))[8:-2]}: {error}")
     content = str(error)
     if isinstance(error, commands.CommandOnCooldown):
-        content = f"You are on cooldown. Try again <t:{int(datetime.datetime.utcnow().timestamp() + error.retry_after)}:R>"
+        content = f"You are on cooldown. Try again <t:{int(timestamp() + error.retry_after)}:R>"
     elif isinstance(error, (commands.CommandNotFound, commands.NotOwner)) or str(error) == f"The global check functions for command {ctx.command.name} failed.":
         return
     try:
@@ -100,24 +104,52 @@ async def on_guild_remove(guild):
     await client.get_user(client.owner_id).send(f"Removed from `{guild.name}`.")
 
 #Miscellaneous Commands
-@client.command(aliases = ("eval",))
+@client.command(name = "eval")
 async def evaluate(ctx, *, content):
-    await ctx.reply(embed = discord.Embed(description = str(eval(content, {
-        "__builtins__": (__builtins__ if await client.is_owner(ctx.author) else None),
-        "ctx": ctx,
-        "client": client,
-        "timestamp": __import__("time").time(),
-        "db": db
-    }))))
+    embed = discord.Embed(
+        title = "Evaluation",
+        description = str(eval(content, {
+            "__builtins__": (__builtins__ if await client.is_owner(ctx.author) else None),
+            "ctx": ctx,
+            "client": client,
+            "timestamp": timestamp(),
+            "db": db,
+            "random": random.random(),
+            "choice": random.choice,
+        })),
+        color = 0xffe5ce
+    ).set_footer(
+        text = ctx.author.display_name,
+        icon_url = ctx.author.avatar_url
+    )
+    message = await ctx.reply(embed = embed)
+    while True:
+        try:
+            before, after = await client.wait_for("message_edit", check = lambda before, after: before == ctx.message and after.content.startswith(f"{client.command_prefix(client, message)}{ctx.command.name} "), timeout = 10 * 60)
+            try:
+                embed.description = str(eval(after.content[len(f"{client.command_prefix(client, after)}{ctx.command.name}"):], {
+                    "__builtins__": (__builtins__ if await client.is_owner(after.author) else None),
+                    "ctx": ctx,
+                    "client": client,
+                    "timestamp": timestamp(),
+                    "db": db,
+                    "random": random.random(),
+                    "choice": random.choice
+                }))
+                await message.edit(embed = embed)
+            except:
+                pass
+        except __import__("asyncio").TimeoutError:
+            break
 
 @client.command(aliases = ("cds",))
 async def cooldowns(ctx):
     await ctx.reply(embed = discord.Embed(
         title = "Cooldowns",
-        description = "\n".join(f"{index}. `{command.name}`: <t:{int(datetime.datetime.utcnow().timestamp() + command.get_cooldown_retry_after(ctx))}:F>" for index, command in enumerate(filter(lambda command: command.is_on_cooldown(ctx), client.commands), start = 1)) or "Nothing found.",
+        description = "\n".join(f"{index}. `{command.name}`: <t:{int(timestamp() + command.get_cooldown_retry_after(ctx))}:F>" for index, command in enumerate(filter(lambda command: command.is_on_cooldown(ctx), client.commands), start = 1)) or "Nothing found.",
         color = 0xffe5ce
     ).set_footer(
-        text = ctx.author.name,
+        text = ctx.author.display_name,
         icon_url = ctx.author.avatar_url
     ))
 
@@ -160,7 +192,7 @@ async def rps(ctx, member: discord.Member = None):
             await ctx.reply(f"{member.display_name} wins!\n\n{ctx.author.display_name}: {moves[p1]} | {member.display_name}: {moves[p2]}")
         else:
             await ctx.reply( f"It's a tie!\n\n{ctx.author.display_name}: {moves[p1]} | {member.display_name}: {moves[p2]}")
-    except asyncio.TimeoutError:
+    except __import__("asyncio").TimeoutError:
         await message.edit(content = "You didn't reply in time.")
 
 @client.command()
@@ -294,7 +326,7 @@ async def bot(ctx):
 In: {len(client.guilds)} guilds
 Latency:
  - Client: {int(client.latency * 1000)}ms
- - API: {int((datetime.datetime.utcnow() - ctx.message.created_at).total_seconds() * 1000)}ms
+ - API: {int((timestamp() - ctx.message.created_at.timestamp()) * 1000)}ms
 Uptime: <t:{int(client.launch_time.timestamp())}:R>
 Version: {discord.__version__}
         """,
@@ -310,7 +342,7 @@ Version: {discord.__version__}
 @commands.has_guild_permissions(kick_members = True)
 @commands.bot_has_guild_permissions(kick_members = True)
 async def kick(ctx, user: discord.User, *, reason: str = "no reason"):
-    await ctx.guild.kick(user = user, reason = f"By {ctx.author.name} for {reason}.")
+    await ctx.guild.kick(user, reason = f"By {ctx.author.name} for {reason}.")
     await ctx.reply(f"{user.name} has been kicked for {reason}.")
 
 @client.command()
@@ -318,7 +350,7 @@ async def kick(ctx, user: discord.User, *, reason: str = "no reason"):
 @commands.has_guild_permissions(ban_members = True)
 @commands.bot_has_guild_permissions(ban_members = True)
 async def ban(ctx, user: discord.User, *, reason: str = "no reason"):
-    await ctx.guild.ban(user = user, reason = f"By {ctx.author.name} for {reason}.", delete_message_days = 0)
+    await ctx.guild.ban(user, reason = f"By {ctx.author.name} for {reason}.", delete_message_days = 0)
     await ctx.reply(f"{user.name} has been banned for {reason}.")
 
 @client.command()
@@ -326,7 +358,7 @@ async def ban(ctx, user: discord.User, *, reason: str = "no reason"):
 @commands.has_guild_permissions(ban_members = True)
 @commands.bot_has_guild_permissions(ban_members = True)
 async def unban(ctx, user: discord.User, *, reason: str = "no reason"):
-    await ctx.guild.unban(user = user, reason = f"By {ctx.author.name} for {reason}.")
+    await ctx.guild.unban(user, reason = f"By {ctx.author.name} for {reason}.")
     await ctx.reply(f"{user.name} has been unbanned for {reason}.")
 
 @client.command()
@@ -411,7 +443,7 @@ async def balance(ctx, *, member: discord.Member = None):
         raise commands.BadArgument("member must not be a bot")
     if str(member.id) not in db["Balance"]:
         db["Balance"][str(member.id)] = 0
-    await ctx.reply(f"{member.name} have ${db['Balance'][str(member.id)]}.")
+    await ctx.reply(f"`{member.display_name} ({member})` have ${db['Balance'][str(member.id)]}.")
 
 @client.command(aliases = ("lb",))
 @commands.guild_only()
@@ -444,27 +476,12 @@ async def gamble(ctx, amount: int):
         p1, p2 = (random.randint(2, 12), random.randint(2, 12))
         if p1 > p2:
             db["Balance"][str(ctx.author.id)] += amount
-            await ctx.reply(f"""
-You won ${amount}!
-
-{ctx.author.name}: {p1}
-{client.user.name}: {p2}
-                            """)
+            await ctx.reply(f"You won ${amount}!\n\n{ctx.author.name}: {p1}\n{client.user.name}: {p2}")
         elif p1 < p2:
             db["Balance"][str(ctx.author.id)] -= amount
-            await ctx.reply(f"""
-You lost ${amount}.
-
-{ctx.author.name}: {p1}
-{client.user.name}: {p2}
-                            """)
+            await ctx.reply(f"You lost ${amount}.\n\n{ctx.author.name}: {p1}\n{client.user.name}: {p2}")
         else:
-            await ctx.reply(f"""
-It's a tie?
-
-{ctx.author.name}: {p1}
-{client.user.name}: {p2}
-                            """)
+            await ctx.reply(f"It's a tie?\n\n{ctx.author.name}: {p1}\n{client.user.name}: {p2}")
     else:
         await ctx.reply(f"You are ${amount - db['Balance'][str(ctx.author.id)]} short.")
 
@@ -545,7 +562,7 @@ async def doc(ctx, *, search = ""):
 @commands.is_owner()
 async def set(ctx, member: discord.Member, amount: int):
     db["Balance"][str(member.id)] = amount
-    await ctx.reply(f"{member.display_name}'s balance has been set to ${amount}.")
+    await ctx.reply(f"`{member.display_name} ({member})`'s balance has been set to ${amount}.")
 
 @client.command(hidden = True)
 @commands.is_owner()
@@ -563,4 +580,4 @@ async def leave(ctx, *, guild: discord.Guild):
 	await guild.leave()
 
 keep_alive()
-client.run(os.environ["token"])
+client.run(__import__("os").environ["token"])
