@@ -217,6 +217,10 @@ async def embed(ctx, title: str = "", description: str = "", url: str = ""):
     else:
         await ctx.send(embed = embed)
 
+@client.command(aliases = ("pig",))
+async def piglatin(ctx, *, content):
+    await ctx.reply(" ".join(f"{word[1:]}{word[0]}ay" for word in content.split(" ")))
+
 @client.command()
 async def invite(ctx):
     await ctx.reply("<https://Senjibot.senjienji.repl.co/invite>")
