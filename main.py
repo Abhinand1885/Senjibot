@@ -106,7 +106,7 @@ async def on_guild_remove(guild):
 #Miscellaneous Commands
 @client.command(name = "eval")
 async def evaluate(ctx, *, content):
-    embed = discord.Embed(
+    await ctx.reply(embed = discord.Embed(
         title = "Evaluation",
         description = str(eval(content, {
             "__builtins__": (__builtins__ if await client.is_owner(ctx.author) else None),
@@ -121,26 +121,7 @@ async def evaluate(ctx, *, content):
     ).set_footer(
         text = ctx.author.display_name,
         icon_url = ctx.author.avatar_url
-    )
-    message = await ctx.reply(embed = embed)
-    while True:
-        try:
-            before, after = await client.wait_for("message_edit", check = lambda before, after: before == ctx.message and after.content.startswith(f"{client.command_prefix(client, message)}{ctx.command.name} "), timeout = 10 * 60)
-            try:
-                embed.description = str(eval(after.content[len(f"{client.command_prefix(client, after)}{ctx.command.name}"):], {
-                    "__builtins__": (__builtins__ if await client.is_owner(after.author) else None),
-                    "ctx": ctx,
-                    "client": client,
-                    "timestamp": timestamp(),
-                    "db": db,
-                    "random": random.random(),
-                    "choice": random.choice
-                }))
-                await message.edit(embed = embed)
-            except:
-                pass
-        except __import__("asyncio").TimeoutError:
-            break
+    ))
 
 @client.command(aliases = ("cds",))
 async def cooldowns(ctx):
@@ -164,9 +145,7 @@ async def cooldowns(ctx):
  - Scissors & Paper: Win
  - Scissors & Scissors: Tie""")
 @commands.bot_has_permissions(add_reactions = True)
-async def rps(ctx, member: discord.Member = None):
-    if member == None:
-        member = client.user
+async def rps(ctx, member: discord.Member = client.user):
     if member == ctx.author:
         return await ctx.reply("You can't play against yourself.")
     moves = ("🪨", "📄", "✂️")
@@ -212,14 +191,10 @@ async def embed(ctx, title: str = "", description: str = "", url: str = ""):
         embed.set_image(
             url = ctx.message.attachments[0].url
         )
-    if ctx.message.reference != None and ctx.message.reference.resolved != None and ctx.message.reference.resolved.author == client.user and ctx.message.reference.resolved.author == ctx.author:
+    if ctx.message.reference != None and ctx.message.reference.resolved != None and ctx.message.reference.resolved.author in (client.user, ctx.author):
         await ctx.message.reference.resolved.edit(embed = embed)
     else:
         await ctx.send(embed = embed)
-
-@client.command(aliases = ("pig",))
-async def piglatin(ctx, *, content):
-    await ctx.reply(" ".join(f"{word[1:]}{word[0]}ay" for word in content.split(" ")))
 
 @client.command()
 async def invite(ctx):
@@ -245,7 +220,7 @@ Avatar URL: [Link]({user.avatar_url})
     ).set_image(
         url = user.avatar_url
     ).set_footer(
-        text = ctx.author.name,
+        text = ctx.author.display_name,
         icon_url = ctx.author.avatar_url
     ))
 
@@ -273,7 +248,7 @@ Avatar URL: [Link]({member.avatar_url})
     ).set_image(
         url = member.avatar_url
     ).set_footer(
-        text = ctx.author.name,
+        text = ctx.author.display_name,
         icon_url = ctx.author.avatar_url
     ))
 
@@ -298,7 +273,7 @@ Icon URL: [Link]({guild.icon_url})
     ).set_image(
         url = guild.icon_url
     ).set_footer(
-        text = ctx.author.name,
+        text = ctx.author.display_name,
         icon_url = ctx.author.avatar_url
     ))
 
@@ -318,7 +293,7 @@ URL: [Link]({emoji.url})
     ).set_image(
         url = emoji.url
     ).set_footer(
-        text = ctx.author.name,
+        text = ctx.author.display_name,
         icon_url = ctx.author.avatar_url
     ))
 
@@ -336,7 +311,7 @@ Version: {discord.__version__}
         """,
         color = 0xffe5ce
     ).set_footer(
-        text = ctx.author.name,
+        text = ctx.author.display_name,
         icon_url = ctx.author.avatar_url
     ))
 
@@ -367,14 +342,15 @@ async def unban(ctx, user: discord.User, *, reason: str = "no reason"):
 
 @client.command()
 async def prefix(ctx, prefix = None):
-    if prefix == None:
+    if ctx.guild == None:
         await ctx.reply(f"My current prefix is `{client.command_prefix(client, ctx.message)}`.")
-    elif ctx.guild != None:
-        if ctx.author.guild_permissions >= discord.Permissions(manage_guild = True):
-            db["Prefix"][str(ctx.guild.id)] = prefix
-            await ctx.reply(f"Prefix has been set to `{db['Prefix'][str(ctx.guild.id)]}`.")
-        else:
-            raise commands.MissingPermissions(["manage_guild"])
+    elif prefix == None:
+        await ctx.reply(f"My current prefix is `{db['Prefix'][str(ctx.guild.id)]}`.")
+    elif ctx.author.guild_permissions >= discord.Permissions(manage_guild = True):
+        db["Prefix"][str(ctx.guild.id)] = prefix
+        await ctx.reply(f"Prefix has been set to `{db['Prefix'][str(ctx.guild.id)]}`.")
+    else:
+        raise commands.MissingPermissions(["manage_guild"])
 
 @client.command()
 @commands.guild_only()
@@ -454,7 +430,7 @@ async def balance(ctx, *, member: discord.Member = None):
 async def leaderboard(ctx):
     await ctx.reply(embed = discord.Embed(
         title = "Leaderboard",
-        description = "\n".join(f"{index}. `{member.display_name} ({member.name}#{member.discriminator})`: ${amount}" for index, (member, amount) in enumerate(sorted(filter(lambda i: i[0] != None and i[1] > 0, [(ctx.guild.get_member(int(i[0])), i[1]) for i in db["Balance"].items()]), key = lambda i: i[1], reverse = True), start = 1)),
+        description = "\n".join(f"{index}. {member.mention} ${amount}" for index, (member, amount) in enumerate(sorted(filter(lambda i: i[0] != None and i[1] > 0, [(ctx.guild.get_member(int(i[0])), i[1]) for i in db["Balance"].items()]), key = lambda i: i[1], reverse = True), start = 1)),
         color = 0xffe5ce
     ).set_footer(
         text = ctx.author.display_name,
