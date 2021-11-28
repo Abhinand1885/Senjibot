@@ -432,7 +432,7 @@ async def balance(ctx, *, member: discord.Member = None):
 async def leaderboard(ctx):
     await ctx.reply(embed = discord.Embed(
         title = "Leaderboard",
-        description = "\n".join(f"{index}. {member.mention} ${amount}" for index, (member, amount) in enumerate(sorted(filter(lambda i: i[0] != None and i[1] > 0, [(ctx.guild.get_member(int(i[0])), i[1]) for i in db["Balance"].items()]), key = lambda i: i[1], reverse = True), start = 1)),
+        description = "\n".join(f"{index}. [{member}](https://discord.com/users/{member.id}): ${amount}" for index, (member, amount) in enumerate(sorted(filter(lambda i: i[0] != None and i[1] > 0, [(ctx.guild.get_member(int(i[0])), i[1]) for i in db["Balance"].items()]), key = lambda i: i[1], reverse = True), start = 1)),
         color = 0xffe5ce
     ).set_footer(
         text = ctx.author.display_name,
