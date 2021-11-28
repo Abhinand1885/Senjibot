@@ -145,7 +145,9 @@ async def cooldowns(ctx):
  - Scissors & Paper: Win
  - Scissors & Scissors: Tie""")
 @commands.bot_has_permissions(add_reactions = True)
-async def rps(ctx, member: discord.Member = client.user):
+async def rps(ctx, member: discord.Member = None):
+    if member == None:
+        member = client.user
     if member == ctx.author:
         return await ctx.reply("You can't play against yourself.")
     moves = ("🪨", "📄", "✂️")
