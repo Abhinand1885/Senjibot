@@ -168,7 +168,7 @@ async def rps(ctx, member: discord.Member = None):
             await message.delete()
             p2 = moves.index(str(reaction.emoji))
         if p1 - p2 in (-2, 1):
-            await ctx.reply(f"{ctx.author.display_name} wins!:\n\n{ctx.author.display_name}: {moves[p1]} | {member.display_name}: {moves[p2]}")
+            await ctx.reply(f"{ctx.author.display_name} wins!\n\n{ctx.author.display_name}: {moves[p1]} | {member.display_name}: {moves[p2]}")
         elif p1 - p2 in (-1, 2):
             await ctx.reply(f"{member.display_name} wins!\n\n{ctx.author.display_name}: {moves[p1]} | {member.display_name}: {moves[p2]}")
         else:
